@@ -1,0 +1,84 @@
+import torch
+from torch.nn.parameter import Parameter
+import torch.nn as nn
+import torch.optim as optim
+
+from torch.utils.checkpoint import checkpoint
+
+
+class NLMLLoss(nn.Module):
+    """ The unnormalized negative log marginal likelihood loss. """
+
+    def __init__(self):
+        super(NLMLLoss, self).__init__()
+
+    def forward(self, L, alpha, y):
+        first = 0.5 * y.t() @ alpha
+        second = torch.sum(torch.log(torch.diag(L)))
+        return first + second
+
+
+class GPRegressor(nn.Module):
+
+    def __init__(self, kernel, sn=0.1, lr=1e-1):
+        super(GPRegressor, self).__init__()
+        self.sn = Parameter(torch.Tensor([sn]))
+        self.kernel = kernel
+        self.loss_func = NLMLLoss()
+        self.optimizer = optim.Adam(self.parameters(), lr=lr)
+        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, 10, 1.0)
+
+
+    def forward(self, X):
+        """ Gaussian process regression predictions.
+
+        Parameters:
+            X: m x d points to predict
+
+        Returns:
+            mu: m x 1 predicted means
+            var: m x m predicted covariance
+
+        Follows Algorithm 2.1 from GPML.
+        """
+        ### Implement prior ###
+        ### Scaling
+        k_star = self.kernel(self.X, X)
+        mu =  k_star.t() @ self.alpha
+        v = torch.trtrs(k_star, self.L, upper=False)[0]
+        k_ss = self.kernel(X, X)
+        var = k_ss - v.t() @ v
+        return mu, var
+    
+    def _kernel(self, X):
+        K = self.kernel(X, X)
+        K += torch.eye(K.size()[0]) * self.sn ** 2
+        L = torch.potrf(K, upper=False)
+        return L
+
+
+    def fit(self, X, y, its=100):
+        self.X = X
+        self.y = y
+        self.history = []
+        for it in range(its):
+            L = checkpoint(self._kernel, X)
+            alpha = torch.trtrs(y, L, upper=False)[0]
+            alpha = torch.trtrs(alpha, L.t(), upper=True)[0]
+            loss = self.loss_func(L, alpha, self.y)
+            # backward
+            self.optimizer.zero_grad()
+            loss.backward(retain_graph=True)
+            # update parameters
+            self.optimizer.step()
+            self.scheduler.step()
+            update = '\rIteration %d of %d\tNLML: %.4f\t' \
+                    %(it + 1, its, loss)
+            print(update, end='')
+            self.history.append(loss.cpu().detach().numpy()[0][0])
+        self.Ky = self.kernel(X, X)
+        self.Ky += torch.eye(X.size()[0]) * self.sn ** 2
+        self.L = torch.potrf(self.Ky, upper=False)
+        self.alpha = torch.trtrs(y, self.L, upper=False)[0]
+        self.alpha = torch.trtrs(self.alpha, self.L.t(), upper=True)[0]
+        return self.history

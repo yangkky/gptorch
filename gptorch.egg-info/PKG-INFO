@@ -1,0 +1,10 @@
+Metadata-Version: 1.0
+Name: gptorch
+Version: 0.1
+Summary: Classes for Gaussian process modeling with pytorch.
+Home-page: UNKNOWN
+Author: Kevin Yang
+Author-email: seinchin@gmail.com
+License: MIT
+Description: UNKNOWN
+Platform: UNKNOWN
