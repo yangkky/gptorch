@@ -49,12 +49,10 @@ class GPRegressor(nn.Module):
         k_ss = self.kernel(X, X)
         var = k_ss - v.t() @ v
         return mu, var
-    
+
     def _kernel(self, X):
         K = self.kernel(X, X)
-        K += torch.eye(K.size()[0]) * self.sn ** 2
-        L = torch.potrf(K, upper=False)
-        return L
+        return K
 
 
     def fit(self, X, y, its=100):
@@ -62,7 +60,9 @@ class GPRegressor(nn.Module):
         self.y = y
         self.history = []
         for it in range(its):
-            L = checkpoint(self._kernel, X)
+            K = self.kernel(X, X)
+            K += torch.eye(K.size()[0]) * self.sn ** 2
+            L = torch.potrf(K, upper=False)
             alpha = torch.trtrs(y, L, upper=False)[0]
             alpha = torch.trtrs(alpha, L.t(), upper=True)[0]
             loss = self.loss_func(L, alpha, self.y)
