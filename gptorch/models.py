@@ -62,10 +62,13 @@ class GPRegressor(nn.Module):
         for it in range(its):
             K = self.kernel(X, X)
             K += torch.eye(K.size()[0]) * self.sn ** 2
-            L = torch.potrf(K, upper=False)
-            alpha = torch.trtrs(y, L, upper=False)[0]
-            alpha = torch.trtrs(alpha, L.t(), upper=True)[0]
-            loss = self.loss_func(L, alpha, self.y)
+            try:
+                self.L = torch.potrf(K, upper=False)
+            except(RuntimeError):
+                return self.history
+            alpha = torch.trtrs(y, self.L, upper=False)[0]
+            self.alpha = torch.trtrs(alpha, self.L.t(), upper=True)[0]
+            loss = self.loss_func(self.L, self.alpha, self.y)
             # backward
             self.optimizer.zero_grad()
             loss.backward(retain_graph=True)
@@ -76,9 +79,9 @@ class GPRegressor(nn.Module):
                     %(it + 1, its, loss)
             print(update, end='')
             self.history.append(loss.cpu().detach().numpy()[0][0])
-        self.Ky = self.kernel(X, X)
-        self.Ky += torch.eye(X.size()[0]) * self.sn ** 2
-        self.L = torch.potrf(self.Ky, upper=False)
+        Ky = self.kernel(X, X)
+        Ky += torch.eye(X.size()[0]) * self.sn ** 2
+        self.L = torch.potrf(Ky, upper=False)
         self.alpha = torch.trtrs(y, self.L, upper=False)[0]
         self.alpha = torch.trtrs(self.alpha, self.L.t(), upper=True)[0]
         return self.history
