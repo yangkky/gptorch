@@ -169,6 +169,8 @@ class WeightedDecompositionKernel(BaseKernel):
         nn.init.normal_(A, 0, 1)
         self.A = Parameter(A)
         self.graph = self.make_graph(contacts, L)
+        d = self.A.device
+        self.graph = self.graph.to(d)
         self.n_S = n_S
 
     def make_graph(self, contacts, L):
@@ -215,6 +217,8 @@ class SoftWeightedDecompositionKernel(BaseKernel):
         nn.init.normal_(w, 0, 1)
         self.w = Parameter(w)
         self.graph = self.make_graph(L)
+        d = self.w.device
+        self.graph = self.graph.to(d)
         self.softmax = nn.Softmax(dim=1)
 
     def make_graph(self, L):
@@ -222,12 +226,10 @@ class SoftWeightedDecompositionKernel(BaseKernel):
         graph = [all_inds[:i] + all_inds[i + 1:] for i in range(L)]
         return torch.LongTensor(graph)
 
-
     def wdk(self, subs):
         temp = subs[:, self.graph] * self.softmax(self.w)
         temp = temp.sum(dim=2)
         return torch.sum(temp * subs, dim=1)
-
 
     def forward(self, X1, X2):
         n1, L = X1.size()
