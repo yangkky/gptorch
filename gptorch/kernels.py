@@ -169,8 +169,7 @@ class WeightedDecompositionKernel(BaseKernel):
         nn.init.normal_(A, 0, 1)
         self.A = Parameter(A)
         self.graph = self.make_graph(contacts, L)
-        d = self.A.device
-        self.graph = self.graph.to(d)
+        self.graph.to(self.A.device)
         self.n_S = n_S
 
     def make_graph(self, contacts, L):
@@ -205,43 +204,57 @@ class WeightedDecompositionKernel(BaseKernel):
 
 class SoftWeightedDecompositionKernel(BaseKernel):
 
-    def __init__(self, L, n_S, d, a=1.0, gamma=1.0):
+    def __init__(self, L, n_S, pos_dim, sub_dim, a=1.0, gamma=1.0, dist='cos'):
         super(SoftWeightedDecompositionKernel, self).__init__()
         self.a = Parameter(torch.tensor([a]))
         self.gamma = Parameter(torch.tensor([gamma]))
-        A = torch.empty(n_S, d)
+        A = torch.empty(n_S, sub_dim)
         nn.init.normal_(A, 0, 1)
         self.A = Parameter(A)
         self.n_S = n_S
-        w = torch.empty(1, L, L - 1)
-        nn.init.normal_(w, 0, 1)
-        self.w = Parameter(w)
-        self.graph = self.make_graph(L)
-        d = self.w.device
-        self.graph = self.graph.to(d)
-        self.softmax = nn.Softmax(dim=1)
+        pos_emb = torch.empty(L, pos_dim)
+        nn.init.normal_(pos_emb, 0, 1)
+        self.pos_emb = Parameter(pos_emb)
+        self.graph = torch.LongTensor([list(range(L)) for i in range(L)])
+        self.graph = self.graph.to(self.A.device)
+        self.dist = dist
 
-    def make_graph(self, L):
-        all_inds = list(range(L))
-        graph = [all_inds[:i] + all_inds[i + 1:] for i in range(L)]
-        return torch.LongTensor(graph)
-
-    def wdk(self, subs):
-        temp = subs[:, self.graph] * self.softmax(self.w)
+    def wdk(self, subs, w):
+        temp = subs[:, self.graph] * w
         temp = temp.sum(dim=2)
         return torch.sum(temp * subs, dim=1)
+
+    def _cos(self):
+        w = self.pos_emb @ self.pos_emb.t()
+        # Normalize
+        norms = torch.sqrt(torch.sum(self.pos_emb ** 2, dim=1, keepdim=True))
+        w = (w / norms / norms.t() + 1) / 2
+        # Set diagonal to 0
+        mask = -torch.eye(w.size()[0]) + 1
+        w *= mask
+        return w
+
+    def _euc(self):
+        w = cdist(self.pos_emb, self.pos_emb)
+        w = 1 / w
+        w[w == float("Inf")] = 0
+        return w
 
     def forward(self, X1, X2):
         n1, L = X1.size()
         n2, _ = X2.size()
+        if self.dist == 'cos':
+            w = self._cos()
+        elif self.dist == 'euc':
+            w = self._euc()
         S = self.A @ self.A.t()
         subs = S[X1, X1]
-        k1 = self.wdk(subs).view((n1, 1))
+        k1 = self.wdk(subs, w).view((n1, 1))
         subs = S[X2, X2]
-        k2 = self.wdk(subs).unsqueeze(0)
+        k2 = self.wdk(subs, w).unsqueeze(0)
         L_inds = torch.arange(L).long()
         subs = S[X1][:, L_inds, X2].view((n1 * n2, L))
-        K = self.wdk(subs).view((n1, n2))
+        K = self.wdk(subs, w).view((n1, n2))
         return (K / torch.sqrt(k1) / torch.sqrt(k2) * self.a) ** self.gamma
 
 
