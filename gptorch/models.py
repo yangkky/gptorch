@@ -55,13 +55,13 @@ class GPRegressor(nn.Module):
         return K
 
 
-    def fit(self, X, y, its=100):
+    def fit(self, X, y, its=100, jitter=1e-6):
         self.X = X
         self.y = y
         self.history = []
         for it in range(its):
             K = self.kernel(X, X)
-            K += torch.eye(K.size()[0]) * self.sn ** 2
+            K += torch.eye(K.size()[0]) * (self.sn ** 2 + jitter)
             try:
                 self.L = torch.potrf(K, upper=False)
             except(RuntimeError):
@@ -80,7 +80,7 @@ class GPRegressor(nn.Module):
             print(update, end='')
             self.history.append(loss.cpu().detach().numpy()[0][0])
         Ky = self.kernel(X, X)
-        Ky += torch.eye(X.size()[0]) * self.sn ** 2
+        Ky += torch.eye(X.size()[0]) * (self.sn ** 2 + jitter)
         self.L = torch.potrf(Ky, upper=False)
         self.alpha = torch.trtrs(y, self.L, upper=False)[0]
         self.alpha = torch.trtrs(self.alpha, self.L.t(), upper=True)[0]
