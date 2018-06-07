@@ -25,9 +25,8 @@ class GPRegressor(nn.Module):
         self.sn = Parameter(torch.Tensor([sn]))
         self.kernel = kernel
         self.loss_func = NLMLLoss()
-        self.optimizer = optim.Adam(self.parameters(), lr=lr)
-        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, 10, 1.0)
-
+        opt = [p for p in self.parameters() if p.requires_grad]
+        self.optimizer = optim.Adam(opt, lr=lr)
 
     def forward(self, X):
         """ Gaussian process regression predictions.
@@ -74,7 +73,6 @@ class GPRegressor(nn.Module):
             loss.backward(retain_graph=True)
             # update parameters
             self.optimizer.step()
-            self.scheduler.step()
             update = '\rIteration %d of %d\tNLML: %.4f\t' \
                     %(it + 1, its, loss)
             print(update, end='')
