@@ -199,7 +199,7 @@ class WeightedDecompositionKernel(BaseKernel):
         L_inds = torch.arange(L).long()
         subs = S[X1][:, L_inds, X2].view((n1 * n2, L))
         K = self.wdk(subs).view((n1, n2))
-        return (K / torch.sqrt(k1) / torch.sqrt(k2) * self.a) ** self.gamma
+        return (K / torch.sqrt(k1) / torch.sqrt(k2) * self.a ** 2) ** self.gamma
 
 
 class SoftWeightedDecompositionKernel(BaseKernel):
@@ -255,7 +255,7 @@ class SoftWeightedDecompositionKernel(BaseKernel):
         L_inds = torch.arange(L).long()
         subs = S[X1][:, L_inds, X2].view((n1 * n2, L))
         K = self.wdk(subs, w).view((n1, n2))
-        return (K / torch.sqrt(k1) / torch.sqrt(k2) * self.a) ** self.gamma
+        return (K / torch.sqrt(k1) / torch.sqrt(k2) * self.a ** 2) ** self.gamma
 
 
 class SumKernel(BaseKernel):
