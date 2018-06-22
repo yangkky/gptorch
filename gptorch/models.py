@@ -20,13 +20,17 @@ class NLMLLoss(nn.Module):
 
 class GPRegressor(nn.Module):
 
-    def __init__(self, kernel, sn=0.1, lr=1e-1):
+    def __init__(self, kernel, sn=0.1, lr=1e-1, scheduler=None):
         super(GPRegressor, self).__init__()
         self.sn = Parameter(torch.Tensor([sn]))
         self.kernel = kernel
         self.loss_func = NLMLLoss()
         opt = [p for p in self.parameters() if p.requires_grad]
         self.optimizer = optim.Adam(opt, lr=lr)
+        if scheduler is not None:
+            self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, *scheduler)
+        else:
+            self.scheduler = None
 
     def forward(self, X):
         """ Gaussian process regression predictions.
@@ -49,12 +53,7 @@ class GPRegressor(nn.Module):
         var = k_ss - v.t() @ v
         return mu, var
 
-    def _kernel(self, X):
-        K = self.kernel(X, X)
-        return K
-
-
-    def fit(self, X, y, its=100, jitter=1e-6):
+    def fit(self, X, y, its=100, jitter=1e-6, verbose=True):
         self.X = X
         self.y = y
         self.history = []
@@ -73,9 +72,12 @@ class GPRegressor(nn.Module):
             loss.backward(retain_graph=True)
             # update parameters
             self.optimizer.step()
-            update = '\rIteration %d of %d\tNLML: %.4f\t' \
-                    %(it + 1, its, loss)
-            print(update, end='')
+            if self.scheduler is not None:
+                self.scheduler.step()
+            if verbose:
+                update = '\rIteration %d of %d\tNLML: %.4f\t' \
+                        %(it + 1, its, loss)
+                print(update, end='')
             self.history.append(loss.cpu().detach().numpy()[0][0])
         Ky = self.kernel(X, X)
         Ky += torch.eye(X.size()[0]) * (self.sn ** 2 + jitter)
