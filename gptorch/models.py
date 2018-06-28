@@ -27,6 +27,7 @@ class GPRegressor(nn.Module):
         self.loss_func = NLMLLoss()
         opt = [p for p in self.parameters() if p.requires_grad]
         self.optimizer = optim.Adam(opt, lr=lr)
+        self.prior = torch.distributions.Gamma(5, 20).log_prob
         if scheduler is not None:
             self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, *scheduler)
         else:
@@ -67,6 +68,7 @@ class GPRegressor(nn.Module):
             alpha = torch.trtrs(y, self.L, upper=False)[0]
             self.alpha = torch.trtrs(alpha, self.L.t(), upper=True)[0]
             loss = self.loss_func(self.L, self.alpha, self.y)
+            loss += self.prior(self.sn)
             # backward
             self.optimizer.zero_grad()
             loss.backward(retain_graph=True)
@@ -75,12 +77,12 @@ class GPRegressor(nn.Module):
             if self.scheduler is not None:
                 self.scheduler.step()
             if verbose:
-                update = '\rIteration %d of %d\tNLML: %.4f\t' \
-                        %(it + 1, its, loss)
+                update = '\rIteration %d of %d\tNLML: %.4f\tsn: %.6f\t' \
+                        %(it + 1, its, loss, self.sn.detach().numpy()[0])
                 print(update, end='')
             self.history.append(loss.cpu().detach().numpy()[0][0])
         Ky = self.kernel(X, X)
-        Ky += torch.eye(X.size()[0]) * (self.sn ** 2 + jitter)
+        Ky += torch.eye(X.size()[0]) * (self.sn + jitter)
         self.L = torch.potrf(Ky, upper=False)
         self.alpha = torch.trtrs(y, self.L, upper=False)[0]
         self.alpha = torch.trtrs(self.alpha, self.L.t(), upper=True)[0]
