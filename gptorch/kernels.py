@@ -103,10 +103,11 @@ class MaternKernel(BaseKernel):
 
     """ A Matern kernel with nu = 5/2. """
 
-    def __init__(self, ell=1.0):
+    def __init__(self, ell=1.0, a=1.0):
         """ Initiate a Matern kernel.  """
         super(MaternKernel, self).__init__()
         self.ell = Parameter(torch.Tensor([ell]))
+        self.a = Parameter(torch.Tensor([a]))
 
 
     def forward(self, X1, X2, hypers=(1.0, )):
@@ -124,7 +125,7 @@ class MaternKernel(BaseKernel):
         sqrt5 = Variable(torch.sqrt(torch.Tensor([5.0])))
         first = (1.0 + sqrt5 * D_L) + 5.0 * D_L ** 2 / 3.0
         second = torch.exp(-sqrt5 * D_L)
-        return first * second
+        return self.a * first * second
 
 
 
