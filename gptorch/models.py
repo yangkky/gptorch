@@ -20,18 +20,35 @@ class NLMLLoss(nn.Module):
 
 class GPRegressor(nn.Module):
 
-    def __init__(self, kernel, sn=0.1, lr=1e-1, scheduler=None):
+    def __init__(self, kernel, sn=0.1, lr=1e-1, scheduler=None, prior=True):
         super(GPRegressor, self).__init__()
         self.sn = Parameter(torch.Tensor([sn]))
         self.kernel = kernel
         self.loss_func = NLMLLoss()
         opt = [p for p in self.parameters() if p.requires_grad]
         self.optimizer = optim.Adam(opt, lr=lr)
-        self.prior = torch.distributions.Gamma(5, 20).log_prob
+        if prior:
+            self.prior = torch.distributions.Gamma(5, 20).log_prob
+        else:
+            self.prior = None
         if scheduler is not None:
             self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, *scheduler)
         else:
             self.scheduler = None
+
+    def loss(self, X, y, jitter):
+        K = self.kernel(X, X)
+        K += torch.eye(K.size()[0]) * (self.sn ** 2 + jitter)
+        try:
+            L = torch.potrf(K, upper=False)
+        except(RuntimeError):
+            return self.history
+        alpha = torch.trtrs(y, L, upper=False)[0]
+        alpha = torch.trtrs(alpha, L.t(), upper=True)[0]
+        loss = self.loss_func(L, alpha, y)
+        if self.prior is not None:
+            loss -= self.prior(self.sn)
+        return loss
 
     def forward(self, X):
         """ Gaussian process regression predictions.
@@ -59,21 +76,13 @@ class GPRegressor(nn.Module):
         self.y = y
         self.history = []
         for it in range(its):
-            K = self.kernel(X, X)
-            K += torch.eye(K.size()[0]) * (self.sn ** 2 + jitter)
-            try:
-                self.L = torch.potrf(K, upper=False)
-            except(RuntimeError):
-                return self.history
-            alpha = torch.trtrs(y, self.L, upper=False)[0]
-            self.alpha = torch.trtrs(alpha, self.L.t(), upper=True)[0]
-            loss = self.loss_func(self.L, self.alpha, self.y)
-            loss += self.prior(self.sn)
+            loss = self.loss(X, y, jitter)
             # backward
             self.optimizer.zero_grad()
             loss.backward(retain_graph=True)
             # update parameters
             self.optimizer.step()
+            self.sn.data.clamp_(min=1e-6)
             if self.scheduler is not None:
                 self.scheduler.step()
             if verbose:
