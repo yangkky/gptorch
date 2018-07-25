@@ -38,11 +38,8 @@ class GPRegressor(nn.Module):
 
     def loss(self, X, y, jitter):
         K = self.kernel(X, X)
-        K += torch.eye(K.size()[0]) * (self.sn ** 2 + jitter)
-        try:
-            L = torch.potrf(K, upper=False)
-        except(RuntimeError):
-            return self.history
+        K += torch.eye(K.size()[0]) * (self.sn + jitter)
+        L = torch.potrf(K, upper=False)
         alpha = torch.trtrs(y, L, upper=False)[0]
         alpha = torch.trtrs(alpha, L.t(), upper=True)[0]
         loss = self.loss_func(L, alpha, y)
@@ -87,7 +84,7 @@ class GPRegressor(nn.Module):
                 self.scheduler.step()
             if verbose:
                 update = '\rIteration %d of %d\tNLML: %.4f\tsn: %.6f\t' \
-                        %(it + 1, its, loss, self.sn.detach().numpy()[0])
+                        %(it + 1, its, loss, self.sn.cpu().detach().numpy()[0])
                 print(update, end='')
             self.history.append(loss.cpu().detach().numpy()[0][0])
         Ky = self.kernel(X, X)
