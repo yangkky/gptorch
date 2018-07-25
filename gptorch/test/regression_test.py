@@ -8,7 +8,8 @@ from scipy import linalg
 def test_regressor():
     jitter = 1e-6
     ke = kernels.MaternKernel()
-    mo = models.GPRegressor(ke)
+    mo = models.GPRegressor(ke, prior=False)
+    print()
     n = 5
     m = 6
     d = 20
@@ -19,9 +20,9 @@ def test_regressor():
     V2 = torch.Tensor(X2)
     yv = torch.Tensor(np.expand_dims(y, 1))
     hi = mo.fit(V1, yv, jitter=jitter)
-    hypers = (mo.sn.detach().numpy()[0], ke.ell.detach().numpy()[0])
+    sn = mo.sn.detach().numpy()[0]
     K = ke(V1, V1).data.numpy()
-    K += (hypers[0] ** 2 + jitter) * np.eye(n)
+    K += (sn + jitter) * np.eye(n)
     k_star = ke(V2, V1).data.numpy()
     mu2 = k_star @ np.linalg.inv(K) @ np.expand_dims(y, 1)
     k_ss = ke(V2, V2).data.numpy()
@@ -35,8 +36,6 @@ def test_regressor():
     alpha = linalg.solve_triangular(L.T, alpha, lower=False)
     alpha = np.expand_dims(alpha, 1)
 
-
-    print()
     assert np.allclose(alpha, mo.alpha.detach().numpy(), atol=1e-5)
     assert np.allclose(mo.loss_func(mo.L, mo.alpha, mo.y).data.numpy(), ml)
 
