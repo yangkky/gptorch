@@ -193,9 +193,6 @@ class WeightedDecompositionKernel(BaseKernel):
         n1, L = X1.size()
         n2, _ = X2.size()
         S = self.A @ self.A.t()
-        smin = S.min()
-        smax = S.max()
-        S = (S - smin + 1) / (smax - smin + 1)
         subs = S[X1, X1]
         k1 = self.wdk(subs).view((n1, 1))
         subs = S[X2, X2]
@@ -252,9 +249,6 @@ class SoftWeightedDecompositionKernel(BaseKernel):
         elif self.dist == 'euc':
             w = self._euc()
         S = self.A @ self.A.t()
-        smin = S.min()
-        smax = S.max()
-        S = (S - smin + 1) / (smax - smin + 1)
         subs = S[X1, X1]
         k1 = self.wdk(subs, w).view((n1, 1))
         subs = S[X2, X2]
