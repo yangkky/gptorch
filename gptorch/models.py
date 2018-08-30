@@ -28,7 +28,7 @@ class GPRegressor(nn.Module):
         opt = [p for p in self.parameters() if p.requires_grad]
         self.optimizer = optim.Adam(opt, lr=lr)
         if prior:
-            self.prior = torch.distributions.Gamma(5, 20).log_prob
+            self.prior = torch.distributions.Beta(2, 2).log_prob
         else:
             self.prior = None
         if scheduler is not None:
