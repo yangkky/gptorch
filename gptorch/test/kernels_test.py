@@ -75,15 +75,55 @@ def naive_wdk(x1, x2, S, D, cutoff=4.5):
         k += s * total
     return k
 
-def test_wdk():
+def test_fixed_wdk():
     L = 5
 
-    seqs1 = ['ACGTTTG', 'GTACGGGCT']
-    seqs2 = ['ACGTTTG', 'CGTACGTA', 'GTACGGGCT']
-    k = 4
-    m = 2
-    A = ['A', 'C', 'G', 'T']
+    X1 = np.array([[0, 1, 2, 3, 1],
+                   [0, 2, 1, 3, 2],
+                   [1, 2, 2, 3, 1]])
+    X2 = np.array([[1, 1, 2, 1, 0],
+                   [0, 2, 1, 3, 2]])
+    D = np.array([[0.0, 5.0, 3.0, 6.0, 2.0],
+                  [5.0, 0.0, 5.0, 6.0, 7.0],
+                  [3.0, 5.0, 0.0, 1.0, 2.0],
+                  [6.0, 6.0, 1.0, 0.0, 1.0],
+                  [2.0, 7.0, 2.0, 1.0, 0.0]])
+    contacts = [(0, 2), (0, 4), (2, 3), (2, 4), (3, 4)]
+    graph = [[2, 4, -1],
+             [-1, -1, -1],
+             [0, 3, 4],
+             [2, 4, -1],
+             [0, 2, 3]]
+    S = torch.randn(size=(4, 10))
+    S = S @ S.t()
+    a = np.random.random()
+    gamma = np.random.random()
+    ke = kernels.FixedWDK(contacts, L, S, a=a, gamma=gamma)
+    S = S.detach().numpy()
 
+    K11 = np.zeros((len(X1), len(X1)))
+    for i, x1 in enumerate(X1):
+        for j, x2 in enumerate(X1):
+            K11[i, j] = naive_wdk(x1, x2, S, D)
+    K22 = np.zeros((len(X2), len(X2)))
+    for i, x1 in enumerate(X2):
+        for j, x2 in enumerate(X2):
+            K22[i, j] = naive_wdk(x1, x2, S, D)
+    K12 = np.zeros((len(X1), len(X2)))
+    for i, x1 in enumerate(X1):
+        for j, x2 in enumerate(X2):
+            K12[i, j] = naive_wdk(x1, x2, S, D)
+    K1_star = np.expand_dims(np.sqrt(np.diag(K11)), 1)
+    K2_star = np.expand_dims(np.sqrt(np.diag(K22)), 0)
+    K12 = K12 / K1_star / K2_star
+    K12 = (K12 ** gamma) * a ** 2
+
+    K = ke(torch.tensor(X1), torch.tensor(X2)).detach().numpy()
+    assert np.allclose(K12, K)
+
+
+def test_wdk():
+    L = 5
     X1 = np.array([[0, 1, 2, 3, 1],
                    [0, 2, 1, 3, 2],
                    [1, 2, 2, 3, 1]])
@@ -168,9 +208,10 @@ def test_swdk():
 
 
 if __name__=="__main__":
-    test_polynomial()
-    test_cdist()
-    test_matern()
-    test_se()
-    test_wdk()
-    test_swdk()
+    test_fixed_wdk()
+    # test_polynomial()
+    # test_cdist()
+    # test_matern()
+    # test_se()
+    # test_wdk()
+    # test_swdk()
