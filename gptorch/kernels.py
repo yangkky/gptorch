@@ -12,7 +12,7 @@ def cdist(X1, X2, squared=False):
     B = torch.sum(X2 ** 2, dim=1, keepdim=True)
     B = torch.t(B)
     C = 2 * torch.matmul(X1, torch.t(X2))
-    D = torch.clamp(A + B - C, min=0)
+    D = torch.clamp(A + B - C, min=1e-12)
     if not squared:
         D = torch.sqrt(D)
     return D
@@ -41,7 +41,9 @@ class BatchedKernel(nn.Module):
                 start_2 = j * self.batchsize
                 stop_2 = (j + 1) * self.batchsize
 #                 batched = self.kernel(X1[start_1:stop_1], X2[start_2:stop_2])
-                K[start_1:stop_1, start_2:stop_2] = checkpoint(self.kernel, X1[start_1:stop_1], X2[start_2:stop_2])
+                K[start_1:stop_1, start_2:stop_2] = checkpoint(self.kernel,
+                                                               X1[start_1:stop_1],
+                                                               X2[start_2:stop_2])
         return K
 
 class BaseKernel(nn.Module):
@@ -200,8 +202,8 @@ class WeightedDecompositionKernel(BaseKernel):
         L_inds = torch.arange(L).long()
         subs = S[X1][:, L_inds, X2].view((n1 * n2, L))
         K = self.wdk(subs).view((n1, n2))
-        return (K / torch.sqrt(k1) / torch.sqrt(k2) * self.a ** 2) ** self.gamma
-
+        K = (K / torch.sqrt(k1) / torch.sqrt(k2))
+        return (self.a ** 2) * K ** self.gamma
 
 class FixedWDK(WeightedDecompositionKernel):
 
@@ -229,7 +231,7 @@ class FixedWDK(WeightedDecompositionKernel):
             K = self.wdk(subs).view((n1, n2))
             K = (K / torch.sqrt(k1) / torch.sqrt(k2))
             self.saved[(X1, X2)] = K
-        return (self.a ** 2) * K ** self.gamma
+        return (self.a ** 2) * (K ** self.gamma)
 
 
 class SoftWeightedDecompositionKernel(BaseKernel):
@@ -285,7 +287,8 @@ class SoftWeightedDecompositionKernel(BaseKernel):
         L_inds = torch.arange(L).long()
         subs = S[X1][:, L_inds, X2].view((n1 * n2, L))
         K = self.wdk(subs, w).view((n1, n2))
-        return (K / torch.sqrt(k1) / torch.sqrt(k2) * self.a ** 2) ** self.gamma
+        K = (K / torch.sqrt(k1) / torch.sqrt(k2))
+        return (self.a ** 2) * (K ** self.gamma)
 
 
 class SumKernel(BaseKernel):
