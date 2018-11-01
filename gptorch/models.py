@@ -38,8 +38,8 @@ class GPRegressor(nn.Module):
 
     def loss(self, X, y, jitter):
         K = self.kernel(X, X)
-        self.optimizer.zero_grad()
-        K += torch.eye(K.size()[0]) * (self.sn + jitter)
+        inds = list(range(len(K)))
+        K[[inds], [inds]] += self.sn + jitter
         L = torch.potrf(K, upper=False)
         alpha = torch.trtrs(y, L, upper=False)[0]
         alpha = torch.trtrs(alpha, L.t(), upper=True)[0]
