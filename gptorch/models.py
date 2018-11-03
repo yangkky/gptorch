@@ -96,7 +96,8 @@ class GPRegressor(nn.Module):
 
     def _set_pars(self, jitter):
         Ky = self.kernel(self.X, self.X)
-        Ky += torch.eye(self.X.size()[0]) * (self.sn + jitter)
+        inds = list(range(len(Ky)))
+        Ky[[inds], [inds]] += self.sn + jitter
         self.L = torch.potrf(Ky, upper=False)
         self.alpha = torch.trtrs(self.y, self.L, upper=False)[0]
         self.alpha = torch.trtrs(self.alpha, self.L.t(), upper=True)[0]
