@@ -213,23 +213,18 @@ class FixedWDK(WeightedDecompositionKernel):
         self.S = S
         self.graph = self.make_graph(contacts, L)
         self.graph.to(self.S.device)
-        self.saved = {}
 
     def forward(self, X1, X2):
-        if (X1, X2) in self.saved:
-            K = self.saved[(X1, X2)]
-        else:
-            n1, L = X1.size()
-            n2, _ = X2.size()
-            subs = self.S[X1, X1]
-            k1 = self.wdk(subs).view((n1, 1))
-            subs = self.S[X2, X2]
-            k2 = self.wdk(subs).unsqueeze(0)
-            L_inds = torch.arange(L).long()
-            subs = self.S[X1][:, L_inds, X2].view((n1 * n2, L))
-            K = self.wdk(subs).view((n1, n2))
-            K = (K / torch.sqrt(k1) / torch.sqrt(k2))
-            self.saved[(X1, X2)] = K
+        n1, L = X1.size()
+        n2, _ = X2.size()
+        subs = self.S[X1, X1]
+        k1 = self.wdk(subs).view((n1, 1))
+        subs = self.S[X2, X2]
+        k2 = self.wdk(subs).unsqueeze(0)
+        L_inds = torch.arange(L).long()
+        subs = self.S[X1][:, L_inds, X2].view((n1 * n2, L))
+        K = self.wdk(subs).view((n1, n2))
+        K = (K / torch.sqrt(k1) / torch.sqrt(k2))
         return (self.a ** 2) * (K ** self.gamma)
 
 
