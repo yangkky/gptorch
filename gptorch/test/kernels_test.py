@@ -97,7 +97,7 @@ def test_fixed_wdk():
     S = torch.randn(size=(4, 10))
     S = S @ S.t()
     a = np.random.random()
-    gamma = np.random.random()
+    gamma = 1.0
     ke = kernels.FixedWDK(contacts, L, S, a=a, gamma=gamma)
     S = S.detach().numpy()
 

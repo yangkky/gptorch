@@ -93,6 +93,7 @@ class GPRegressor(nn.Module):
                         %(it + 1, its, loss, self.sn.cpu().detach().numpy()[0])
                 print(update, end='')
             self.history.append(loss.cpu().detach().numpy()[0][0])
+            del loss
 
     def _set_pars(self, jitter):
         Ky = self.kernel(self.X, self.X)

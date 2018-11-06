@@ -187,9 +187,8 @@ class WeightedDecompositionKernel(BaseKernel):
 
     def wdk(self, subs):
         n = len(subs)
-        z = torch.zeros((n, 1))
-        subs_ = torch.cat([subs, z], dim=1)
-        return torch.sum(subs_[:, self.graph].sum(dim=2) * subs, dim=1)
+        subs = torch.cat([subs, torch.zeros((n, 1))], dim=1)
+        return torch.sum(subs[:, self.graph].sum(dim=2) * subs[:, :-1], dim=1)
 
     def forward(self, X1, X2):
         n1, L = X1.size()
