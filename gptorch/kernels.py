@@ -204,6 +204,34 @@ class WeightedDecompositionKernel(BaseKernel):
         K = (K / torch.sqrt(k1) / torch.sqrt(k2))
         return (self.a ** 2) * K ** self.gamma
 
+
+class SeriesWDK(WeightedDecompositionKernel):
+
+    def __init__(self, contacts, L, n_S, d, a=1.0, gamma=1.0):
+        super(WeightedDecompositionKernel, self).__init__()
+        self.a = Parameter(torch.tensor([a]))
+        self.gamma = Parameter(torch.tensor([gamma]))
+        A = torch.randn((L, n_S, d))
+        self.A = Parameter(A)
+        self.graph = self.make_graph(contacts, L)
+        self.graph.to(self.A.device)
+        self.n_S = n_S
+
+    def forward(self, X1, X2):
+        n1, L = X1.size()
+        n2, _ = X2.size()
+        S = self.A @ self.A.transpose(-1, -2)
+        subs = S[torch.arange(L).long(), X1, X1]
+        k1 = self.wdk(subs).view((n1, 1))
+        subs = S[torch.arange(L).long(), X2, X2]
+        k2 = self.wdk(subs).unsqueeze(0)
+        L_inds = torch.arange(L).long()
+        subs = S[torch.arange(L).long(), X1][:, L_inds, X2].view((n1 * n2, L))
+        K = self.wdk(subs).view((n1, n2))
+        K = (K / torch.sqrt(k1) / torch.sqrt(k2))
+        return (self.a ** 2) * K ** self.gamma
+
+
 class FixedWDK(WeightedDecompositionKernel):
 
     def __init__(self, contacts, L, S, a=1.0, gamma=1.0):
