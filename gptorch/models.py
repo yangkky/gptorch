@@ -36,7 +36,7 @@ class GPRegressor(nn.Module):
         else:
             self.scheduler = None
 
-    def loss(self, X, y, jitter):
+    def loss(self, X, y, jitter, val=None):
         K = self.kernel(X, X)
         inds = list(range(len(K)))
         K[[inds], [inds]] += self.sn + jitter
@@ -46,7 +46,15 @@ class GPRegressor(nn.Module):
         loss = self.loss_func(L, alpha, y)
         if self.prior is not None:
             loss -= self.prior(self.sn)
-        return loss
+
+        if val is not None:
+            X_val, y_val = val
+            k_star = self.kernel(X, X_val)
+            mu =  k_star.t() @ alpha
+            mse = nn.MSELoss()(mu, y_val)
+            return loss, mse
+        else:
+            return loss
 
     def forward(self, X):
         """ Gaussian process regression predictions.
@@ -69,17 +77,25 @@ class GPRegressor(nn.Module):
         var = k_ss - v.t() @ v
         return mu, var
 
-    def fit(self, X, y, its=100, jitter=1e-6, verbose=True):
+    def fit(self, X, y, its=100, jitter=1e-6, verbose=True, val=None, chkpt=None):
         self.X = X
         self.y = y
-        self._fit(X, y, its, jitter, verbose)
+        self._fit(X, y, its, jitter, verbose, val, chkpt)
         self._set_pars(jitter)
         return self.history
 
-    def _fit(self, X, y, its, jitter, verbose):
+    def _fit(self, X, y, its, jitter, verbose, val, chkpt):
         self.history = []
+        if val is not None and chkpt is not None:
+            best_mse = 1e14
         for it in range(its):
-            loss = self.loss(X, y, jitter)
+            if val is not None:
+                loss, mse = self.loss(X, y, jitter, val=val)
+                mse = mse.item()
+                if chkpt is not None and mse < best_mse:
+                    torch.save(self.state_dict(), chkpt)
+            else:
+                loss = self.loss(X, y, jitter)
             # backward
             self.optimizer.zero_grad()
             loss.backward(retain_graph=True)
@@ -92,7 +108,14 @@ class GPRegressor(nn.Module):
                 update = '\rIteration %d of %d\tNLML: %.4f\tsn: %.6f\t' \
                         %(it + 1, its, loss, self.sn.cpu().detach().numpy()[0])
                 print(update, end='')
-            self.history.append(loss.cpu().detach().numpy()[0][0])
+                if val is not None:
+                    print('val mse: %.2f' %mse, end='')
+            if val is None:
+                h = (loss.item(), self.sn.item())
+            else:
+                h = (loss.item(), self.sn.item(), mse)
+                del mse
+            self.history.append(h)
             del loss
 
     def _set_pars(self, jitter):
