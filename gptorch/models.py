@@ -98,7 +98,7 @@ class GPRegressor(nn.Module):
                 loss = self.loss(X, y, jitter)
             # backward
             self.optimizer.zero_grad()
-            loss.backward(retain_graph=True)
+            loss.backward(retain_graph=False)
             # update parameters
             self.optimizer.step()
             self.sn.data.clamp_(min=1e-6)
@@ -109,7 +109,7 @@ class GPRegressor(nn.Module):
                         %(it + 1, its, loss, self.sn.cpu().detach().numpy()[0])
                 print(update, end='')
                 if val is not None:
-                    print('val mse: %.2f' %mse, end='')
+                    print('val mse: %.4f' %mse, end='')
             if val is None:
                 h = (loss.item(), self.sn.item())
             else:
