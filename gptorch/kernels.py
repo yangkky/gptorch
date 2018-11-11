@@ -1,4 +1,5 @@
 import abc
+import itertools
 
 import torch
 from torch.autograd import Variable
@@ -203,6 +204,41 @@ class WeightedDecompositionKernel(BaseKernel):
         K = self.wdk(subs).view((n1, n2))
         K = (K / torch.sqrt(k1) / torch.sqrt(k2))
         return (self.a ** 2) * K ** self.gamma
+
+class DeepWDK(WeightedDecompositionKernel):
+
+    def __init__(self, network, contacts, L, n_aa, a=1.0):
+        super(WeightedDecompositionKernel, self).__init__()
+        self.a = Parameter(torch.tensor([a]))
+        self.network = network
+        self.n_aa = n_aa
+        self.graph = self.make_graph(contacts, L)
+        self.graph.to(self.a.device)
+
+    def forward(self, X1, X2):
+        n1, L = X1.size()
+        n2, _ = X2.size()
+        e1 = self.network(X1).view(n1, self.n_aa, -1)
+        e2 = self.network(X2).view(n2, self.n_aa, -1)
+        S = torch.cat([e1, e1], dim=-1)
+        S = S @ S.transpose(-1, -2)
+        subs = torch.stack([S[i][x, x] for i, x in enumerate(X1)])
+        k1 = self.wdk(subs).view((n1, 1))
+        S = torch.cat([e2, e2], dim=-1)
+        S = S @ S.transpose(-1, -2)
+        subs = torch.stack([S[i][x, x] for i, x in enumerate(X2)])
+        k2 = self.wdk(subs).unsqueeze(0)
+        inds2 = torch.cat([torch.arange(n2)] * n1).long()
+        inds1 = torch.cat([torch.tensor([i for _ in range(n2)])
+                           for i in range(n1)])
+        inds1 = inds1.long()
+        S = torch.cat([e1[inds1], e2[inds2]], dim=-1)
+        S = S @ S.transpose(-1, -2)
+        subs = torch.stack([S[i][x1, x2] for i, (x1, x2) in
+                            enumerate(itertools.product(X1, X2))])
+        K = self.wdk(subs).view((n1, n2))
+        K = (K / torch.sqrt(k1) / torch.sqrt(k2))
+        return (self.a ** 2) * K
 
 
 class SeriesWDK(WeightedDecompositionKernel):
