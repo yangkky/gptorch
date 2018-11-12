@@ -156,8 +156,8 @@ class DeepGPRegressor(GPRegressor):
         return super(DeepGPRegressor, self).loss(emb, y, jitter)
 
 
-    def fit(self, X, y, its=100, jitter=1e-6, verbose=True):
-        self._fit(X, y, its, jitter, verbose)
+    def fit(self, X, y, its=100, jitter=1e-6, verbose=True, val=None, chkpt=None):
+        self._fit(X, y, its, jitter, verbose, val, chkpt)
         self.X = self.network(X)
         self.y = y
         self._set_pars(jitter)
