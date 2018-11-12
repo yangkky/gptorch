@@ -234,7 +234,7 @@ class DeepWDK(WeightedDecompositionKernel):
         k2 = self.wdk(subs).unsqueeze(0)
         S = torch.cat([e1.repeat(1, n2, 1).view(n1 * n2, self.n_aa, -1),
                        e2.repeat(n1, 1, 1)], dim=-1)
-        S = S @ S.transpose(-1, -2)
+        S = torch.bmm(S, S.transpose(-1, -2))
         X1m = X1.repeat(1, n2).view(n1 * n2, L)
         X2m = X2.repeat(n1, 1)
         idx = X2m + X1m * (self.n_aa)
