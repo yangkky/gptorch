@@ -270,8 +270,13 @@ class DeepAddWDK(WeightedDecompositionKernel):
         idx += (torch.arange(n2).long() * self.n_aa ** 2).view(n2, 1)
         subs = S2.view(-1)[idx.view(-1)].view(n2, L)
         k2 = self.wdk(subs).unsqueeze(0)
-        S = S1.repeat(1, n2, 1).view(n1 * n2, self.n_aa, -1) + S2.repeat(n1, 1, 1)
-        S /= 2
+        inds = torch.arange(n1).long()[:, None]
+        inds = inds.expand(n1, n2).contiguous().view(-1)
+        S1 = torch.index_select(S1, 0, inds)
+        inds = torch.arange(n2).long()
+        inds = inds.repeat(n1)
+        S2 = torch.index_select(S2, 0, inds)
+        S = (S1 + S2) / 2
         X1m = X1.repeat(1, n2).view(n1 * n2, L)
         X2m = X2.repeat(n1, 1)
         idx = X2m + X1m * (self.n_aa)
