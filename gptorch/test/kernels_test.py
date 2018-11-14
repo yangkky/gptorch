@@ -325,6 +325,59 @@ def test_deep_wdk():
     K = ke(torch.tensor(X1), torch.tensor(X2)).detach().numpy()
     assert np.allclose(K12, K)
 
+def naive_dawdk(network, x1, x2, graph, n_aa):
+    e1 = network(x1[None, :]).view(n_aa, -1)
+    e2 = network(x2[None, :]).view(n_aa, -1)
+    S = e1 @ e1.t() + e2 @ e2.t()
+    k = 0
+    for i, (xx1, xx2) in enumerate(zip(x1, x2)):
+        s12 = S[xx1, xx2]
+        others = 0
+        for j in graph[i]:
+            if j == -1:
+                continue
+            others += S[x1[j], x2[j]]
+        k += s12 * others
+    return k
+
+def test_deep_add_wdk():
+    L = 5
+    n_aa = 4
+    X1 = np.array([[0, 1, 2, 3, 1],
+                   [0, 2, 1, 3, 2],
+                   [1, 2, 2, 3, 1]])
+    X2 = np.array([[1, 1, 2, 1, 0],
+                   [0, 2, 1, 3, 2]])
+    X1 = torch.tensor(X1).long()
+    X2 = torch.tensor(X2).long()
+    contacts = [(0, 2), (0, 4), (2, 3), (2, 4), (3, 4)]
+    graph = [[2, 4, -1],
+             [-1, -1, -1],
+             [0, 3, 4],
+             [2, 4, -1],
+             [0, 2, 3]]
+
+    embedder = Embedder(n_aa, [32, 64, 32], L)
+    ke = kernels.DeepAddWDK(embedder, contacts, L, n_aa)
+
+    K11 = np.zeros((len(X1), len(X1)))
+    for i, x1 in enumerate(X1):
+        for j, x2 in enumerate(X1):
+            K11[i, j] = naive_dawdk(embedder, x1, x2, graph, n_aa)
+    K22 = np.zeros((len(X2), len(X2)))
+    for i, x1 in enumerate(X2):
+        for j, x2 in enumerate(X2):
+            K22[i, j] = naive_dawdk(embedder, x1, x2, graph, n_aa)
+    K12 = np.zeros((len(X1), len(X2)))
+    for i, x1 in enumerate(X1):
+        for j, x2 in enumerate(X2):
+            K12[i, j] = naive_dawdk(embedder, x1, x2, graph, n_aa)
+    K1_star = np.expand_dims(np.sqrt(np.diag(K11)), 1)
+    K2_star = np.expand_dims(np.sqrt(np.diag(K22)), 0)
+    K12 = K12 / K1_star / K2_star
+    K = ke(torch.tensor(X1), torch.tensor(X2)).detach().numpy()
+    assert np.allclose(K12, K)
+
 
 if __name__=="__main__":
     test_fixed_wdk()
@@ -336,3 +389,4 @@ if __name__=="__main__":
     test_swdk()
     test_series_wdk()
     test_deep_wdk()
+    test_deep_add_wdk()
