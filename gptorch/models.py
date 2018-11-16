@@ -151,9 +151,14 @@ class DeepGPRegressor(GPRegressor):
         embedded = self.network(X)
         return super(DeepGPRegressor, self).forward(embedded)
 
-    def loss(self, X, y, jitter):
+    def loss(self, X, y, jitter, val=None):
         emb = self.network(X)
-        return super(DeepGPRegressor, self).loss(emb, y, jitter)
+        if val is not None:
+            ve = self.network(val[0])
+            vxy = (ve, val[1])
+        else:
+            vxy = None
+        return super(DeepGPRegressor, self).loss(emb, y, jitter, val=vxy)
 
 
     def fit(self, X, y, its=100, jitter=1e-6, verbose=True, val=None, chkpt=None):
