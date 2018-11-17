@@ -205,7 +205,7 @@ class WeightedDecompositionKernel(BaseKernel):
         K = (K / torch.sqrt(k1) / torch.sqrt(k2))
         return (self.a ** 2) * K ** self.gamma
 
-class DeepSeriesWDK(WeightedDecompositionKernel):
+class DeepWDK(WeightedDecompositionKernel):
 
     def __init__(self, network, n_aa, a=1.0):
         super(WeightedDecompositionKernel, self).__init__()
@@ -216,6 +216,39 @@ class DeepSeriesWDK(WeightedDecompositionKernel):
     def wdk(self, subs):
         n = len(subs)
         return torch.sum(subs, dim=1)
+
+    def forward(self, X1, X2):
+        n1, L = X1.size()
+        n2, _ = X2.size()
+        S1 = self.network(X1).view(n1, self.n_aa, -1)
+        S1 = torch.bmm(S1, S1.transpose(-1, -2))
+        S2 = self.network(X2).view(n2, self.n_aa, -1)
+        S2 = torch.bmm(S2, S2.transpose(-1, -2))
+        idx = X1 * (self.n_aa + 1)
+        idx += (torch.arange(n1).long() * self.n_aa ** 2).view(n1, 1)
+        subs = S1.view(-1)[idx.view(-1)].view(n1, L)
+        k1 = self.wdk(subs).view((n1, 1))
+        idx = X2 * (self.n_aa + 1)
+        idx += (torch.arange(n2).long() * self.n_aa ** 2).view(n2, 1)
+        subs = S2.view(-1)[idx.view(-1)].view(n2, L)
+        k2 = self.wdk(subs).unsqueeze(0)
+        inds = torch.arange(n1).long()[:, None]
+        inds = inds.expand(n1, n2).contiguous().view(-1)
+        S = torch.index_select(S1, 0, inds)
+        inds = torch.arange(n2).long()
+        inds = inds.repeat(n1)
+        S += torch.index_select(S2, 0, inds)
+        S /= 2
+        X1m = X1.repeat(1, n2).view(n1 * n2, L)
+        X2m = X2.repeat(n1, 1)
+        idx = X2m + X1m * (self.n_aa)
+        idx += (torch.arange(n1 * n2).long() * self.n_aa ** 2).view(n1 * n2, 1)
+        subs = S.view(-1)[idx.view(-1)].view(n1 * n2, L)
+        K = self.wdk(subs).view((n1, n2))
+        K = (K / torch.sqrt(k1) / torch.sqrt(k2))
+        return (self.a ** 2) * K
+
+class DeepSeriesWDK(DeepWDK):
 
     def forward(self, X1, X2):
         n1, L = X1.size()
@@ -239,13 +272,13 @@ class DeepSeriesWDK(WeightedDecompositionKernel):
         k2 = self.wdk(subs).unsqueeze(0)
         inds = torch.arange(n1).long()[:, None]
         inds = inds.expand(n1, n2).contiguous().view(-1)
-        S1 = torch.index_select(S1, 0, inds)
+        S = torch.index_select(S1, 0, inds)
         X1m = torch.index_select(X1, 0, inds)
         inds = torch.arange(n2).long()
         inds = inds.repeat(n1)
-        S2 = torch.index_select(S2, 0, inds)
+        S += torch.index_select(S2, 0, inds)
         X2m = torch.index_select(X2, 0, inds)
-        S = (S1 + S2) / 2
+        S /= 2
         subs = S[x12_inds, L_inds.expand(n1 * n2, L), X1m, X2m]
 
         K = self.wdk(subs).view((n1, n2))
