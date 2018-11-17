@@ -268,7 +268,7 @@ class DeepSeriesWDK(DeepWDK):
         S2 = torch.matmul(S2, S2.transpose(-1, -2))
         subs = S1[x1_inds, L_inds.expand(n1, L), X1, X1]
         k1 = self.wdk(subs).view((n1, 1))
-        subs = S1[x2_inds, L_inds.expand(n2, L), X2, X2]
+        subs = S2[x2_inds, L_inds.expand(n2, L), X2, X2]
         k2 = self.wdk(subs).unsqueeze(0)
         inds = torch.arange(n1).long()[:, None]
         inds = inds.expand(n1, n2).contiguous().view(-1)
@@ -280,12 +280,9 @@ class DeepSeriesWDK(DeepWDK):
         X2m = torch.index_select(X2, 0, inds)
         S /= 2
         subs = S[x12_inds, L_inds.expand(n1 * n2, L), X1m, X2m]
-
         K = self.wdk(subs).view((n1, n2))
         K = (K / torch.sqrt(k1) / torch.sqrt(k2))
         return (self.a ** 2) * K
-
-
 
 class SeriesWDK(WeightedDecompositionKernel):
 
@@ -408,4 +405,7 @@ class SumKernel(BaseKernel):
         self.kernels = nn.ModuleList(kernels)
 
     def forward(self, X1, X2):
-        return torch.sum(torch.stack([ke(X1, X2) for ke in self.kernels]), dim=0)
+        K = torch.zeros(len(X1), len(X2))
+        for k in self.kernels:
+            K += k(X1, X2)
+        return K
