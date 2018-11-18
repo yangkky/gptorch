@@ -259,8 +259,6 @@ class DeepSeriesWDK(DeepWDK):
         x1_inds = x1_inds[:, None].expand(n1, L)
         x2_inds = torch.arange(n2).long()
         x2_inds = x2_inds[:, None].expand(n2, L)
-        x12_inds = torch.arange(n1 * n2).long()
-        x12_inds = x12_inds[:, None].expand(n1 * n2, L)
 
         S1 = self.network(X1).view(n1, L, self.n_aa, -1)
         S1 = torch.matmul(S1, S1.transpose(-1, -2))
@@ -270,16 +268,18 @@ class DeepSeriesWDK(DeepWDK):
         k1 = self.wdk(subs).view((n1, 1))
         subs = S2[x2_inds, L_inds.expand(n2, L), X2, X2]
         k2 = self.wdk(subs).unsqueeze(0)
-        inds = torch.arange(n1).long()[:, None]
-        inds = inds.expand(n1, n2).contiguous().view(-1)
-        S = torch.index_select(S1, 0, inds)
-        X1m = torch.index_select(X1, 0, inds)
-        inds = torch.arange(n2).long()
-        inds = inds.repeat(n1)
-        S += torch.index_select(S2, 0, inds)
-        X2m = torch.index_select(X2, 0, inds)
-        S /= 2
-        subs = S[x12_inds, L_inds.expand(n1 * n2, L), X1m, X2m]
+
+        inds1 = torch.arange(n1).long()[:, None]
+        inds1 = inds1.expand(n1, n2).contiguous().view(-1)
+        X1m = torch.index_select(X1, 0, inds1)
+        inds2 = torch.arange(n2).long()
+        inds2 = inds2.repeat(n1)
+        X2m = torch.index_select(X2, 0, inds2)
+        L_inds = L_inds.expand(n1 * n2, L)
+        subs = S1[inds1[:, None].expand(n1 * n2, L), L_inds, X1m, X2m]
+        subs += S2[inds2[:, None].expand(n1 * n2, L), L_inds, X1m, X2m]
+        subs /= 2
+
         K = self.wdk(subs).view((n1, n2))
         K = (K / torch.sqrt(k1) / torch.sqrt(k2))
         return (self.a ** 2) * K
