@@ -341,7 +341,7 @@ class FixedWDK(WeightedDecompositionKernel):
 
 class SoftWeightedDecompositionKernel(BaseKernel):
 
-    def __init__(self, L, n_S, pos_dim, sub_dim, a=1.0, dist='cos'):
+    def __init__(self, L, n_S, sub_dim, a=1.0, dist='cos'):
         super(SoftWeightedDecompositionKernel, self).__init__()
         self.a = Parameter(torch.tensor([a]))
         A = torch.empty(n_S, sub_dim)
