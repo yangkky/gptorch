@@ -348,9 +348,11 @@ class SoftWeightedDecompositionKernel(BaseKernel):
         nn.init.normal_(A, 0, 1)
         self.A = Parameter(A)
         self.n_S = n_S
-        pos_emb = torch.empty(L, pos_dim)
-        nn.init.normal_(pos_emb, 0, 1)
-        self.pos_emb = Parameter(pos_emb)
+        self.w = Parameter(torch.zeros(L * (L - 1) // 2))
+        self.sig = nn.Sigmoid()
+        i_x, i_y = np.tril_indices(L, k=-1)
+        self.i_x = torch.tensor(i_x).long()
+        self.i_y = torch.tensor(i_y).long()
         self.graph = torch.LongTensor([list(range(L)) for i in range(L)])
         self.graph = self.graph.to(self.A.device)
         self.dist = dist
@@ -360,29 +362,13 @@ class SoftWeightedDecompositionKernel(BaseKernel):
         temp = temp.sum(dim=2)
         return torch.sum(temp * subs, dim=1)
 
-    def _cos(self):
-        w = self.pos_emb @ self.pos_emb.t()
-        # Normalize
-        norms = torch.sqrt(torch.sum(self.pos_emb ** 2, dim=1, keepdim=True))
-        w = (w / norms / norms.t() + 1) / 2
-        # Set diagonal to 0
-        mask = -torch.eye(w.size()[0]) + 1
-        w *= mask
-        return w
-
-    def _euc(self):
-        w = cdist(self.pos_emb, self.pos_emb)
-        w = 1 / w
-        w[w == float("Inf")] = 0
-        return w
-
     def forward(self, X1, X2):
         n1, L = X1.size()
         n2, _ = X2.size()
-        if self.dist == 'cos':
-            w = self._cos()
-        elif self.dist == 'euc':
-            w = self._euc()
+        w = torch.zeros(L, L)
+        w[self.i_x, self.i_y] = self.w
+        w[self.i_y, self.i_x] = self.w
+        w = self.sig(w)
         S = self.A @ self.A.t()
         subs = S[X1, X1]
         k1 = self.wdk(subs, w).view((n1, 1))
