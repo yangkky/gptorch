@@ -206,21 +206,72 @@ class WeightedDecompositionKernel(BaseKernel):
         K = (K / torch.sqrt(k1) / torch.sqrt(k2))
         return (self.a ** 2) * K
 
-class DeepWDK(WeightedDecompositionKernel):
 
-    def __init__(self, network, n_aa, a=1.0):
-        super(WeightedDecompositionKernel, self).__init__()
+class SoftWeightedDecompositionKernel(BaseKernel):
+
+    def __init__(self, L, n_S, sub_dim, a=1.0):
+        super(SoftWeightedDecompositionKernel, self).__init__()
         self.a = Parameter(torch.tensor([a]))
-        self.network = network
-        self.n_aa = n_aa
+        A = torch.empty(n_S, sub_dim)
+        nn.init.normal_(A, 0, 1)
+        self.A = Parameter(A)
+        self.n_S = n_S
+        self.w = Parameter(torch.zeros(L * (L - 1) // 2))
+        self.sig = nn.Sigmoid()
+        i_x, i_y = np.tril_indices(L, k=-1)
+        self.i_x = torch.tensor(i_x).long()
+        self.i_y = torch.tensor(i_y).long()
+        self.graph = torch.LongTensor([list(range(L)) for i in range(L)])
+        self.graph = self.graph.to(self.A.device)
 
-    def wdk(self, subs):
-        n = len(subs)
-        return torch.sum(subs, dim=1)
+    def wdk(self, subs, w):
+        temp = subs[:, self.graph] * w
+        temp = temp.sum(dim=2)
+        return torch.sum(temp * subs, dim=1)
 
     def forward(self, X1, X2):
         n1, L = X1.size()
         n2, _ = X2.size()
+        w = torch.zeros(L, L)
+        w[self.i_x, self.i_y] = self.w
+        w[self.i_y, self.i_x] = self.w
+        w = self.sig(w)
+        S = self.A @ self.A.t()
+        subs = S[X1, X1]
+        k1 = self.wdk(subs, w).view((n1, 1))
+        subs = S[X2, X2]
+        k2 = self.wdk(subs, w).unsqueeze(0)
+        L_inds = torch.arange(L).long()
+        subs = S[X1][:, L_inds, X2].view((n1 * n2, L))
+        K = self.wdk(subs, w).view((n1, n2))
+        K = (K / torch.sqrt(k1) / torch.sqrt(k2))
+        return (self.a ** 2) * K
+
+
+class DeepWDK(SoftWeightedDecompositionKernel):
+
+    def __init__(self, network, n_aa, L, a=1.0):
+        super(SoftWeightedDecompositionKernel, self).__init__()
+        self.a = Parameter(torch.tensor([a]))
+        self.network = network
+        self.n_aa = n_aa
+        self.w = Parameter(torch.zeros(L * (L - 1) // 2))
+        self.sig = nn.Sigmoid()
+        i_x, i_y = np.tril_indices(L, k=-1)
+        self.i_x = torch.tensor(i_x).long()
+        self.i_y = torch.tensor(i_y).long()
+        self.graph = torch.LongTensor([list(range(L)) for i in range(L)])
+        self.graph = self.graph.to(self.w.device)
+
+    def forward(self, X1, X2):
+        n1, L = X1.size()
+        n2, _ = X2.size()
+
+        w = torch.zeros(L, L)
+        w[self.i_x, self.i_y] = self.w
+        w[self.i_y, self.i_x] = self.w
+        w = self.sig(w)
+
         S1 = self.network(X1).view(n1, self.n_aa, -1)
         S1 = torch.bmm(S1, S1.transpose(-1, -2))
         S2 = self.network(X2).view(n2, self.n_aa, -1)
@@ -228,11 +279,11 @@ class DeepWDK(WeightedDecompositionKernel):
         idx = X1 * (self.n_aa + 1)
         idx += (torch.arange(n1).long() * self.n_aa ** 2).view(n1, 1)
         subs = S1.view(-1)[idx.view(-1)].view(n1, L)
-        k1 = self.wdk(subs).view((n1, 1))
+        k1 = self.wdk(subs, w).view((n1, 1))
         idx = X2 * (self.n_aa + 1)
         idx += (torch.arange(n2).long() * self.n_aa ** 2).view(n2, 1)
         subs = S2.view(-1)[idx.view(-1)].view(n2, L)
-        k2 = self.wdk(subs).unsqueeze(0)
+        k2 = self.wdk(subs, w).unsqueeze(0)
         inds = torch.arange(n1).long()[:, None]
         inds = inds.expand(n1, n2).contiguous().view(-1)
         S = torch.index_select(S1, 0, inds)
@@ -245,7 +296,7 @@ class DeepWDK(WeightedDecompositionKernel):
         idx = X2m + X1m * (self.n_aa)
         idx += (torch.arange(n1 * n2).long() * self.n_aa ** 2).view(n1 * n2, 1)
         subs = S.view(-1)[idx.view(-1)].view(n1 * n2, L)
-        K = self.wdk(subs).view((n1, n2))
+        K = self.wdk(subs, w).view((n1, n2))
         K = (K / torch.sqrt(k1) / torch.sqrt(k2))
         return (self.a ** 2) * K
 
@@ -254,6 +305,12 @@ class DeepSeriesWDK(DeepWDK):
     def forward(self, X1, X2):
         n1, L = X1.size()
         n2, _ = X2.size()
+
+        w = torch.zeros(L, L)
+        w[self.i_x, self.i_y] = self.w
+        w[self.i_y, self.i_x] = self.w
+        w = self.sig(w)
+
         L_inds = torch.arange(L).long()
         L_inds = L_inds[None, :]
         x1_inds = torch.arange(n1).long()
@@ -266,9 +323,9 @@ class DeepSeriesWDK(DeepWDK):
         S2 = self.network(X2).view(n2, L, self.n_aa, -1)
         S2 = torch.matmul(S2, S2.transpose(-1, -2))
         subs = S1[x1_inds, L_inds.expand(n1, L), X1, X1]
-        k1 = self.wdk(subs).view((n1, 1))
+        k1 = self.wdk(subs, w).view((n1, 1))
         subs = S2[x2_inds, L_inds.expand(n2, L), X2, X2]
-        k2 = self.wdk(subs).unsqueeze(0)
+        k2 = self.wdk(subs, w).unsqueeze(0)
 
         inds1 = torch.arange(n1).long()[:, None]
         inds1 = inds1.expand(n1, n2).contiguous().view(-1)
@@ -278,10 +335,10 @@ class DeepSeriesWDK(DeepWDK):
         X2m = torch.index_select(X2, 0, inds2)
         L_inds = L_inds.expand(n1 * n2, L)
         subs = S1[inds1[:, None].expand(n1 * n2, L), L_inds, X1m, X2m]
-        subs += S2[inds2[:, None].expand(n1 * n2, L), L_inds, X1m, X2m]
-        subs /= 2
-
-        K = self.wdk(subs).view((n1, n2))
+        K = self.wdk(subs, w).view((n1, n2))
+        subs = S2[inds2[:, None].expand(n1 * n2, L), L_inds, X1m, X2m]
+        K += self.wdk(subs, w).view((n1, n2))
+        K /= 2
         K = (K / torch.sqrt(k1) / torch.sqrt(k2))
         return (self.a ** 2) * K
 
@@ -338,47 +395,6 @@ class FixedWDK(WeightedDecompositionKernel):
             self.dic[repr(X1), repr(X2)] = K
         return (self.a ** 2) * K
 
-
-class SoftWeightedDecompositionKernel(BaseKernel):
-
-    def __init__(self, L, n_S, sub_dim, a=1.0, dist='cos'):
-        super(SoftWeightedDecompositionKernel, self).__init__()
-        self.a = Parameter(torch.tensor([a]))
-        A = torch.empty(n_S, sub_dim)
-        nn.init.normal_(A, 0, 1)
-        self.A = Parameter(A)
-        self.n_S = n_S
-        self.w = Parameter(torch.zeros(L * (L - 1) // 2))
-        self.sig = nn.Sigmoid()
-        i_x, i_y = np.tril_indices(L, k=-1)
-        self.i_x = torch.tensor(i_x).long()
-        self.i_y = torch.tensor(i_y).long()
-        self.graph = torch.LongTensor([list(range(L)) for i in range(L)])
-        self.graph = self.graph.to(self.A.device)
-        self.dist = dist
-
-    def wdk(self, subs, w):
-        temp = subs[:, self.graph] * w
-        temp = temp.sum(dim=2)
-        return torch.sum(temp * subs, dim=1)
-
-    def forward(self, X1, X2):
-        n1, L = X1.size()
-        n2, _ = X2.size()
-        w = torch.zeros(L, L)
-        w[self.i_x, self.i_y] = self.w
-        w[self.i_y, self.i_x] = self.w
-        w = self.sig(w)
-        S = self.A @ self.A.t()
-        subs = S[X1, X1]
-        k1 = self.wdk(subs, w).view((n1, 1))
-        subs = S[X2, X2]
-        k2 = self.wdk(subs, w).unsqueeze(0)
-        L_inds = torch.arange(L).long()
-        subs = S[X1][:, L_inds, X2].view((n1 * n2, L))
-        K = self.wdk(subs, w).view((n1, n2))
-        K = (K / torch.sqrt(k1) / torch.sqrt(k2))
-        return (self.a ** 2) * K
 
 class SoftSeriesWDK(SoftWeightedDecompositionKernel):
 
