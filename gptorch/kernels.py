@@ -208,6 +208,7 @@ class WeightedDecompositionKernel(BaseKernel):
 
 
 class SoftWeightedDecompositionKernel(BaseKernel):
+    """ Pairwise attention, one shared substitution matrix"""
 
     def __init__(self, L, n_S, sub_dim, a=1.0):
         super(SoftWeightedDecompositionKernel, self).__init__()
@@ -249,6 +250,7 @@ class SoftWeightedDecompositionKernel(BaseKernel):
 
 
 class DeepWDK(SoftWeightedDecompositionKernel):
+    """Pairwise attention, one S for each input sequence"""
 
     def __init__(self, network, n_aa, L, a=1.0):
         super(SoftWeightedDecompositionKernel, self).__init__()
@@ -301,6 +303,7 @@ class DeepWDK(SoftWeightedDecompositionKernel):
         return (self.a ** 2) * K
 
 class DeepSeriesWDK(DeepWDK):
+    """Hard contacts, L substitution matrices per input"""
 
     def forward(self, X1, X2):
         n1, L = X1.size()
@@ -343,6 +346,7 @@ class DeepSeriesWDK(DeepWDK):
         return (self.a ** 2) * K
 
 class SeriesWDK(WeightedDecompositionKernel):
+    """ No attention, L substitution matrices. """
 
     def __init__(self, contacts, L, n_S, d, a=1.0):
         super(WeightedDecompositionKernel, self).__init__()
@@ -397,6 +401,7 @@ class FixedWDK(WeightedDecompositionKernel):
 
 
 class SoftSeriesWDK(SoftWeightedDecompositionKernel):
+    """ Pairwise attention, L substitution matrices."""
 
     def __init__(self, L, n_S, sub_dim, a=1.0):
         super(SoftWeightedDecompositionKernel, self).__init__()

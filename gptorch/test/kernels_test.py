@@ -98,7 +98,7 @@ def test_fixed_wdk():
     S = S @ S.t()
     a = np.random.random()
     gamma = 1.0
-    ke = kernels.FixedWDK(contacts, L, S, a=a, gamma=gamma)
+    ke = kernels.FixedWDK(contacts, L, S, a=a)
     S = S.detach().numpy()
 
     K11 = np.zeros((len(X1), len(X1)))
@@ -187,19 +187,16 @@ def test_swdk():
     X2 = np.random.choice(m, size=(n2, L))
     T1 = torch.LongTensor(X1)
     T2 = torch.LongTensor(X2)
-    ke = kernels.SoftWeightedDecompositionKernel(L, m, 3, 2 * m,
-                                                 a=1.0, gamma=1.0, dist='cos')
+    ke = kernels.SoftWeightedDecompositionKernel(L, m, 2 * m, a=1.0)
     K12 = ke(T1, T2).detach().numpy()
     S = ke.A @ ke.A.t()
     S = S.detach().numpy()
-    w = ke.pos_emb @ ke.pos_emb.t()
-    # Normalize
-    norms = torch.sqrt(torch.sum(ke.pos_emb ** 2, dim=1, keepdim=True))
-    w = (w / norms / norms.t() + 1) / 2
-    # Set diagonal to 0
-    mask = -torch.eye(w.size()[0]) + 1
-    w *= mask
-    w = w.detach().numpy()
+    w_flat = ke.w.detach().numpy()
+    i_x, i_y = np.tril_indices(L, k=-1)
+    w = np.zeros((L, L))
+    w[i_x, i_y] = w_flat
+    w[i_y, i_x] = w_flat
+    w = 1 / (1 + np.exp(-w))
     K = np.zeros((n1, n2))
     for i in range(n1):
         for j in range(n2):
@@ -253,6 +250,54 @@ def test_series_wdk():
     K = ke(torch.tensor(X1), torch.tensor(X2)).detach().numpy()
     assert np.allclose(K12, K)
 
+def naive_sswdk(x1, x2, S, w):
+    k = 0
+    for i, (xx1, xx2) in enumerate(zip(x1, x2)):
+        s12 = S[i, xx1, xx2]
+        others = 0
+        for j, (a1, a2) in enumerate(zip(x1, x2)):
+            others += S[j, a1, a2] * w[i, j]
+        k += s12 * others
+    return k
+
+def test_soft_series_wdk():
+    L = 5
+    X1 = np.array([[0, 1, 2, 3, 1],
+                   [0, 2, 1, 3, 2],
+                   [1, 2, 2, 3, 1]])
+    X2 = np.array([[1, 1, 2, 1, 0],
+                   [0, 2, 1, 3, 2]])
+
+    n_S = 4
+    d = 8
+    ke = kernels.SoftSeriesWDK(L, n_S, d)
+    S = (ke.A @ ke.A.transpose(-1, -2)).detach().numpy()
+    w_flat = ke.w.detach().numpy()
+    i_x, i_y = np.tril_indices(L, k=-1)
+    w = np.zeros((L, L))
+    w[i_x, i_y] = w_flat
+    w[i_y, i_x] = w_flat
+    w = 1 / (1 + np.exp(-w))
+
+    K11 = np.zeros((len(X1), len(X1)))
+    for i, x1 in enumerate(X1):
+        for j, x2 in enumerate(X1):
+            K11[i, j] = naive_sswdk(x1, x2, S, w)
+    K22 = np.zeros((len(X2), len(X2)))
+    for i, x1 in enumerate(X2):
+        for j, x2 in enumerate(X2):
+            K22[i, j] = naive_sswdk(x1, x2, S, w)
+    K12 = np.zeros((len(X1), len(X2)))
+    for i, x1 in enumerate(X1):
+        for j, x2 in enumerate(X2):
+            K12[i, j] = naive_sswdk(x1, x2, S, w)
+    K1_star = np.expand_dims(np.sqrt(np.diag(K11)), 1)
+    K2_star = np.expand_dims(np.sqrt(np.diag(K22)), 0)
+    K12 = K12 / K1_star / K2_star
+
+    K = ke(torch.tensor(X1), torch.tensor(X2)).detach().numpy()
+    assert np.allclose(K12, K)
+
 class Embedder(nn.Module):
     def __init__(self, n_aa, dims, L):
         super(Embedder, self).__init__()
@@ -271,14 +316,25 @@ class Embedder(nn.Module):
         e = self.lin1(self.relu(e))
         return self.layers(e)
 
-def naive_dwdk(network, x1, x2, n_aa):
-    e1 = network(x1[None, :]).view(n_aa, -1)
-    e2 = network(x2[None, :]).view(n_aa, -1)
-    e = torch.cat([e1, e2], dim=-1)
-    S = e @ e.t()
+def naive_dwdk(network, x1, x2, n_aa, w):
+    L = len(x1)
+    e1 = network(x1[None, :]).view(L, n_aa, -1)
+    e2 = network(x2[None, :]).view(L, n_aa, -1)
+    S1 = e1.matmul(e1.transpose(-1, -2))
+    S2 = e2.matmul(e2.transpose(-1, -2))
+
+    # e = torch.cat([e1, e2], dim=-1)
+    # S = e.matmul(e.transpose(-1, -2)) / 2
     k = 0
     for i, (xx1, xx2) in enumerate(zip(x1, x2)):
-        k += S[xx1, xx2]
+        s1 = S1[i, xx1, xx2]
+        s2 = S2[i, xx1, xx2]
+        others1 = 0
+        others2 = 0
+        for j, (a1, a2) in enumerate(zip(x1, x2)):
+            others1 += S1[j, a1, a2] * w[i, j]
+            others2 += S2[j, a1, a2] * w[i, j]
+        k += s1 * others1 + s2 * others2
     return k
 
 def test_deep_wdk():
@@ -292,25 +348,33 @@ def test_deep_wdk():
     X1 = torch.tensor(X1).long()
     X2 = torch.tensor(X2).long()
 
-    embedder = Embedder(n_aa, [32, 64, 32], L)
-    ke = kernels.DeepWDK(embedder, n_aa)
+    embedder = Embedder(n_aa, [32, 64, L * n_aa * 8], L)
+    ke = kernels.DeepWDK(embedder, n_aa, L)
+    w_flat = ke.w.detach().numpy()
+    i_x, i_y = np.tril_indices(L, k=-1)
+    w = np.zeros((L, L))
+    w[i_x, i_y] = w_flat
+    w[i_y, i_x] = w_flat
+    w = 1 / (1 + np.exp(-w))
 
     K11 = np.zeros((len(X1), len(X1)))
     for i, x1 in enumerate(X1):
         for j, x2 in enumerate(X1):
-            K11[i, j] = naive_dwdk(embedder, x1, x2, n_aa)
+            K11[i, j] = naive_dwdk(embedder, x1, x2, n_aa, w)
     K22 = np.zeros((len(X2), len(X2)))
     for i, x1 in enumerate(X2):
         for j, x2 in enumerate(X2):
-            K22[i, j] = naive_dwdk(embedder, x1, x2, n_aa)
+            K22[i, j] = naive_dwdk(embedder, x1, x2, n_aa, w)
     K12 = np.zeros((len(X1), len(X2)))
     for i, x1 in enumerate(X1):
         for j, x2 in enumerate(X2):
-            K12[i, j] = naive_dwdk(embedder, x1, x2, n_aa)
+            K12[i, j] = naive_dwdk(embedder, x1, x2, n_aa, w)
     K1_star = np.expand_dims(np.sqrt(np.diag(K11)), 1)
     K2_star = np.expand_dims(np.sqrt(np.diag(K22)), 0)
     K12 = K12 / K1_star / K2_star
     K = ke(torch.tensor(X1), torch.tensor(X2)).detach().numpy()
+    print(K12)
+    print(K)
     assert np.allclose(K12, K)
 
 def naive_dswdk(network, x1, x2, n_aa):
@@ -390,6 +454,7 @@ if __name__=="__main__":
     test_wdk()
     test_swdk()
     test_series_wdk()
+    test_soft_series_wdk()
     test_deep_wdk()
-    test_deep_series_wdk()
-    test_sum_kernel()
+    # test_deep_series_wdk()
+    # test_sum_kernel()
