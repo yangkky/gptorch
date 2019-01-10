@@ -20,7 +20,7 @@ class NLMLLoss(nn.Module):
 
 class GPRegressor(nn.Module):
 
-    def __init__(self, kernel, sn=0.1, lr=1e-1, scheduler=None, prior=True):
+    def __init__(self, kernel, sn=0.1, lr=1e-1, scheduler=False, prior=True):
         super(GPRegressor, self).__init__()
         self.sn = Parameter(torch.Tensor([sn]))
         self.kernel = kernel
@@ -31,8 +31,11 @@ class GPRegressor(nn.Module):
             self.prior = torch.distributions.Beta(2, 2).log_prob
         else:
             self.prior = None
-        if scheduler is not None:
-            self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, *scheduler)
+        if scheduler:
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,
+                                                                  patience=2,
+                                                                  verbose=True,
+                                                                  mode='max')
         else:
             self.scheduler = None
 
@@ -102,8 +105,8 @@ class GPRegressor(nn.Module):
             # update parameters
             self.optimizer.step()
             self.sn.data.clamp_(min=1e-6)
-            if self.scheduler is not None:
-                self.scheduler.step()
+            # if self.scheduler is not None:
+            #     self.scheduler.step(loss)
             if verbose:
                 update = '\rIteration %d of %d\tNLML: %.4f\tsn: %.6f\t' \
                         %(it + 1, its, loss, self.sn.cpu().detach().numpy()[0])
